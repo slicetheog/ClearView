@@ -10,12 +10,12 @@
 using System;
 using System.Reflection;
 
-[assembly: System.Reflection.AssemblyCompanyAttribute("ClearView")]
+[assembly: System.Reflection.AssemblyCompanyAttribute("SpotlightClean")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
-[assembly: System.Reflection.AssemblyProductAttribute("ClearView")]
-[assembly: System.Reflection.AssemblyTitleAttribute("ClearView")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4f5784ea33b6a24457c400a3c2ed306ba57d16fb")]
+[assembly: System.Reflection.AssemblyProductAttribute("SpotlightClean")]
+[assembly: System.Reflection.AssemblyTitleAttribute("SpotlightClean")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
 [assembly: System.Runtime.Versioning.TargetPlatformAttribute("Windows7.0")]
 [assembly: System.Runtime.Versioning.SupportedOSPlatformAttribute("Windows7.0")]
