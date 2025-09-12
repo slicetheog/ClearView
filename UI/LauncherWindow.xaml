@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:logic="clr-namespace:SpotlightClean.Logic"
         xmlns:data="clr-namespace:SpotlightClean.Data"
+        xmlns:viewModel="clr-namespace:SpotlightClean.ViewModel"
         Title="Spotlight" Width="600"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         WindowStartupLocation="CenterScreen" ShowInTaskbar="False"
@@ -10,6 +11,10 @@
         Loaded="Window_Loaded"
         Deactivated="Window_Deactivated"
         Closing="Window_Closing">
+
+    <Window.DataContext>
+        <viewModel:LauncherViewModel/>
+    </Window.DataContext>
 
     <Window.Resources>
         <ResourceDictionary>
@@ -19,12 +24,7 @@
             <logic:IconConverter x:Key="IconConverter"/>
             <logic:ActionButtonsVisibilityConverter x:Key="ActionButtonsVisibilityConverter"/>
             <logic:DeleteButtonVisibilityConverter x:Key="DeleteButtonVisibilityConverter"/>
-            
-            <CollectionViewSource x:Key="GroupedResults" Source="{Binding}" IsLiveGroupingRequested="True">
-                <CollectionViewSource.GroupDescriptions>
-                    <PropertyGroupDescription PropertyName="GroupName"/>
-                </CollectionViewSource.GroupDescriptions>
-            </CollectionViewSource>
+            <logic:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
 
             <DataTemplate x:Key="DefaultResultTemplate" DataType="{x:Type data:SearchResult}">
                 <Grid>
@@ -33,9 +33,7 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-
                     <Image Source="{Binding Converter={StaticResource IconConverter}}" Width="32" Height="32" Margin="0,0,12,0" VerticalAlignment="Center"/>
-
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                         <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="16" Foreground="White"/>
                         <TextBlock Text="{Binding FullPath}" VerticalAlignment="Center" FontSize="11" Opacity="0.7" TextTrimming="CharacterEllipsis">
@@ -54,7 +52,6 @@
                             </TextBlock.Style>
                         </TextBlock>
                     </StackPanel>
-
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right">
                         <StackPanel Orientation="Horizontal">
                             <StackPanel.Visibility>
@@ -93,7 +90,6 @@
                     <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" FontSize="16" Foreground="White"/>
                 </Grid>
             </DataTemplate>
-            
         </ResourceDictionary>
     </Window.Resources>
 
@@ -113,7 +109,7 @@
                                  Foreground="White"
                                  BorderThickness="0"
                                  CaretBrush="White"
-                                 TextChanged="SearchBox_TextChanged"
+                                 TextChanged="SearchBox_TextChanged" 
                                  GotFocus="SearchBox_GotFocus" LostFocus="SearchBox_LostFocus"
                                  PreviewKeyDown="SearchBox_PreviewKeyDown" />
                     </Grid>
@@ -121,7 +117,7 @@
 
                 <ListBox x:Name="ResultsBox" Margin="0,5,0,0" MaxHeight="450"
                          Background="Transparent" BorderThickness="0"
-                         ItemsSource="{Binding Source={StaticResource GroupedResults}}"
+                         ItemsSource="{Binding GroupedResults}" 
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          MouseDoubleClick="ResultsBox_MouseDoubleClick">
                     
@@ -132,6 +128,15 @@
                                     <TextBlock Text="{Binding Name}" Foreground="White" FontSize="12" Opacity="0.6" Margin="5,8,0,2"/>
                                 </DataTemplate>
                             </GroupStyle.HeaderTemplate>
+                            <GroupStyle.ContainerStyle>
+                                <Style TargetType="{x:Type GroupItem}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ItemCount}" Value="0">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </GroupStyle.ContainerStyle>
                         </GroupStyle>
                     </ListBox.GroupStyle>
                     
@@ -177,12 +182,14 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
                 
-                <StackPanel x:Name="IndexingPanel" VerticalAlignment="Center" HorizontalAlignment="Stretch" Margin="0,15,0,15" Visibility="Collapsed">
-                    <TextBlock x:Name="IndexingTitleText" Text="Indexing Files..." Foreground="White" HorizontalAlignment="Center" Margin="0,0,0,8"/>
-                    <TextBlock x:Name="LoadingTitleText" Text="Loading index from cache..." Foreground="White" HorizontalAlignment="Center" Margin="0,0,0,8" Visibility="Collapsed"/>
-                    <TextBlock x:Name="IndexingStatusText" Text="0 items indexed" HorizontalAlignment="Center" Foreground="Gray" FontSize="12"/>
+                <StackPanel x:Name="IndexingPanel" VerticalAlignment="Center" HorizontalAlignment="Stretch" Margin="0,15,0,15" 
+                            Visibility="{Binding IsIndexingInProgress, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock x:Name="IndexingTitleText" Text="Indexing Files..." Foreground="White" HorizontalAlignment="Center" Margin="0,0,0,8"
+                               Visibility="{Binding ShowIndexingTitle, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <TextBlock x:Name="LoadingTitleText" Text="Loading index from cache..." Foreground="White" HorizontalAlignment="Center" Margin="0,0,0,8" 
+                               Visibility="{Binding ShowLoadingTitle, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <TextBlock x:Name="IndexingStatusText" Text="{Binding IndexingStatusText}" HorizontalAlignment="Center" Foreground="Gray" FontSize="12"/>
                 </StackPanel>
-
             </StackPanel>
         </Grid>
     </Border>
