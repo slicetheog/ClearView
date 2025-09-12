@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "quNlMwT5QKE=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\Alex\\Desktop\\Spotlight\\SpotlightClean.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Alex\\.nuget\\packages\\microsoft.win32.systemevents\\8.0.0\\microsoft.win32.systemevents.8.0.0.nupkg.sha512",
+    "C:\\Users\\Alex\\.nuget\\packages\\system.drawing.common\\8.0.0\\system.drawing.common.8.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}
