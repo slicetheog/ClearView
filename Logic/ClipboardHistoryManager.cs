@@ -1,3 +1,4 @@
+// FILE: Logic/ClipboardHistoryManager.cs
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -32,7 +33,6 @@ namespace ClearView.Logic
         public static void AddEntry(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
-
             _lock.EnterWriteLock();
             try
             {
@@ -48,10 +48,8 @@ namespace ClearView.Logic
                 }
 
                 _history.AddFirst(normalized);
-
                 while (_history.Count > MaxItems)
                     _history.RemoveLast();
-
                 // persist asynchronously
                 Task.Run(() => SaveToDisk());
             }
@@ -97,7 +95,7 @@ namespace ClearView.Logic
                 var bytes = File.ReadAllBytes(PersistPath);
                 using var ms = new MemoryStream(bytes);
                 var ser = new DataContractJsonSerializer(typeof(string[]));
-                var arr = (string[])ser.ReadObject(ms);
+                var arr = (string[]?)ser.ReadObject(ms); // CHANGED: Explicitly define as nullable to resolve CS8600 warning.
                 if (arr == null) return;
                 _lock.EnterWriteLock();
                 try

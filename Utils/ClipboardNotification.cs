@@ -1,3 +1,4 @@
+// FILE: Utils/ClipboardNotification.cs
 using System;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -8,9 +9,8 @@ namespace ClearView.Utils
     public static class ClipboardNotification
     {
         // Event that fires when clipboard changes
-        public static event EventHandler ClipboardUpdate;
-
-        private static HwndSource _source;
+        public static event EventHandler? ClipboardUpdate; // CHANGED: Made event nullable to resolve CS8618 warning.
+        private static HwndSource? _source; // CHANGED: Made field nullable to resolve CS8618 warning.
         private const int WM_CLIPBOARDUPDATE = 0x031D;
         private static readonly IntPtr HWND_MESSAGE = new IntPtr(-3);
 
@@ -23,7 +23,6 @@ namespace ClearView.Utils
         public static void Start()
         {
             if (_source != null) return;
-
             System.Windows.Application.Current.Dispatcher.Invoke(() =>
             {
                 var parameters = new HwndSourceParameters("ClipboardNotificationWindow")

@@ -1,403 +1,328 @@
-﻿// FILE: ViewModel/LauncherViewModel.cs
+﻿// FILE: UI/LauncherWindow.xaml.cs
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Text.Json;
-using System.Threading.Tasks;
-using System.Windows.Data;
-using System.Windows.Threading;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Forms;
 using ClearView.Data;
-using ClearView.Logic;
+using ClearView.ViewModel;
 using ClearView.Utils;
+using System.Linq;
+using System.ComponentModel;
 
-namespace ClearView.ViewModel
+namespace ClearView.UI
 {
-    public class LauncherViewModel : BaseViewModel
+    public partial class LauncherWindow : Window
     {
-        private List<SearchResult> _fileSystemIndex = new List<SearchResult>();
-        private List<SearchResult> _recentFiles = new List<SearchResult>();
-        private List<SearchResult> _recentSearches = new List<SearchResult>();
+        private readonly LauncherViewModel _viewModel;
+        private const string PlaceholderText = "Search files, apps, and more...";
+        private bool _isProgrammaticallyChangingText = false;
 
-        private const int MaxRecentFiles = 5;
-        private const int MaxRecentSearches = 5;
+        private NotifyIcon? _notifyIcon;
+        private HotkeyHelper? _hotkeyHelper;
 
-        private readonly string _recentFilesPath;
-        private readonly string _recentSearchesPath;
-        private readonly string _settingsPath;
-        private readonly string _indexingSettingsPath;
-        private readonly string _exclusionSettingsPath;
-        private readonly string _generalSettingsPath;
-        private readonly string _indexFilePath;
-
-        private List<string> _searchScope = new List<string>();
-        private IndexingSettings _indexingSettings = new IndexingSettings();
-        private ExclusionSettings _exclusionSettings = new ExclusionSettings();
-        private GeneralSettings _generalSettings = new GeneralSettings();
-
-        private DispatcherTimer _searchTimer;
-
-        private bool _isIndexingInProgress;
-        public bool IsIndexingInProgress
+        public LauncherWindow()
         {
-            get => _isIndexingInProgress;
-            set
+            InitializeComponent();
+            _viewModel = new LauncherViewModel();
+            DataContext = _viewModel;
+            SetPlaceholder();
+        }
+
+        private void Window_Loaded(object sender, RoutedEventArgs e) // CHANGED: Removed 'async' as no awaitable code is called.
+        {
+            try
             {
-                _isIndexingInProgress = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(ShowIndexingTitle));
-                OnPropertyChanged(nameof(ShowLoadingTitle));
+                WindowAccent.EnableBlur(this);
+                SetupSystemTrayIcon();
+                SetupHotkey();
+            
+                _viewModel.UpdateDefaultView();
+                FocusSearchBox();
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show($"A critical error occurred on startup: {ex.Message}\n\n{ex.StackTrace}", "Startup Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                System.Windows.Application.Current.Shutdown();
             }
         }
 
-        private string _indexingStatusText = "0 items indexed";
-        public string IndexingStatusText
+        private void SetupSystemTrayIcon() 
         {
-            get => _indexingStatusText;
-            set { _indexingStatusText = value; OnPropertyChanged(); }
-        }
-
-        private bool _isLoadingFromCache;
-        public bool IsLoadingFromCache
-        {
-            get => _isLoadingFromCache;
-            set
+            try
             {
-                _isLoadingFromCache = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(ShowIndexingTitle));
-                OnPropertyChanged(nameof(ShowLoadingTitle));
-            }
-        }
-
-        public bool ShowIndexingTitle => IsIndexingInProgress && !IsLoadingFromCache;
-        public bool ShowLoadingTitle => IsIndexingInProgress && IsLoadingFromCache;
-
-        private string _searchText = string.Empty;
-        public string SearchText
-        {
-            get => _searchText;
-            set
-            {
-                if (_searchText != value)
+                var iconUri = new Uri("pack://application:,,,/Assets/search_icon.ico", UriKind.RelativeOrAbsolute);
+                using (var iconStream = System.Windows.Application.GetResourceStream(iconUri)?.Stream)
                 {
-                    _searchText = value;
-                    OnPropertyChanged();
-                    _searchTimer.Stop();
-                    _searchTimer.Start();
-                }
-            }
-        }
-
-        private CollectionViewSource _groupedResults = new CollectionViewSource();
-        public ICollectionView GroupedResults => _groupedResults.View;
-
-        public List<string> SearchScope { get => _searchScope; set { _searchScope = value ?? new List<string>(); OnPropertyChanged(nameof(SearchScope)); } }
-        public IndexingSettings IndexingSettings { get => _indexingSettings; set { _indexingSettings = value; OnPropertyChanged(); } }
-        public ExclusionSettings ExclusionSettings { get => _exclusionSettings; set { _exclusionSettings = value; OnPropertyChanged(); } }
-        public GeneralSettings GeneralSettings
-        {
-            get => _generalSettings;
-            set
-            {
-                _generalSettings = value ?? new GeneralSettings();
-                OnPropertyChanged();
-                _ = UpdateDisplayedResults();
-            }
-        }
-
-        public List<SearchResult> RecentFiles => _recentFiles;
-        public List<SearchResult> RecentSearches => _recentSearches;
-
-        private static readonly HashSet<string> CleanModeNoisyExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ".log", ".tmp", ".bak", ".cache", ".pkg", ".js"
-        };
-
-        public LauncherViewModel()
-        {
-            string appDataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClearView");
-            Directory.CreateDirectory(appDataPath);
-
-            _recentFilesPath = Path.Combine(appDataPath, "recent.json");
-            _recentSearchesPath = Path.Combine(appDataPath, "recentSearches.json");
-            _settingsPath = Path.Combine(appDataPath, "drives.json");
-            _indexingSettingsPath = Path.Combine(appDataPath, "indexing.json");
-            _exclusionSettingsPath = Path.Combine(appDataPath, "exclusions.json");
-            _generalSettingsPath = Path.Combine(appDataPath, "general.json");
-            _indexFilePath = Path.Combine(appDataPath, "fileSystemIndex.json");
-
-            _groupedResults.GroupDescriptions.Add(new PropertyGroupDescription("GroupName"));
-
-            _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
-            _searchTimer.Tick += async (s, e) =>
-            {
-                _searchTimer.Stop();
-                await UpdateDisplayedResults();
-            };
-
-            Initialize();
-        }
-
-        private async void Initialize()
-        {
-            LoadDriveSettings();
-            LoadIndexingSettings();
-            LoadExclusionSettings();
-            LoadGeneralSettings();
-            LoadRecentFiles();
-            LoadRecentSearches();
-
-            await BuildFileSystemIndexAsync(false);
-            UpdateDefaultView();
-        }
-
-        #region Load/Save Methods
-
-        private void LoadDriveSettings()
-        {
-            try
-            {
-                if (File.Exists(_settingsPath))
-                {
-                    var savedDrives = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(_settingsPath));
-                    if (savedDrives != null && savedDrives.Any())
-                        _searchScope = savedDrives;
-                }
-                if (!_searchScope.Any())
-                    _searchScope.Add(DriveInfo.GetDrives().First(d => d.IsReady).Name);
-            }
-            catch { }
-        }
-
-        private void LoadIndexingSettings()
-        {
-            try
-            {
-                if (File.Exists(_indexingSettingsPath))
-                    _indexingSettings = JsonSerializer.Deserialize<IndexingSettings>(File.ReadAllText(_indexingSettingsPath)) ?? new IndexingSettings();
-            }
-            catch { _indexingSettings = new IndexingSettings(); }
-        }
-
-        private void LoadExclusionSettings()
-        {
-            try
-            {
-                if (File.Exists(_exclusionSettingsPath))
-                    _exclusionSettings = JsonSerializer.Deserialize<ExclusionSettings>(File.ReadAllText(_exclusionSettingsPath)) ?? new ExclusionSettings();
-            }
-            catch { _exclusionSettings = new ExclusionSettings(); }
-        }
-
-        private void LoadGeneralSettings()
-        {
-            try
-            {
-                if (File.Exists(_generalSettingsPath))
-                    _generalSettings = JsonSerializer.Deserialize<GeneralSettings>(File.ReadAllText(_generalSettingsPath)) ?? new GeneralSettings();
-            }
-            catch { _generalSettings = new GeneralSettings(); }
-        }
-
-        private void LoadRecentFiles()
-        {
-            try
-            {
-                if (File.Exists(_recentFilesPath))
-                    _recentFiles = JsonSerializer.Deserialize<List<SearchResult>>(File.ReadAllText(_recentFilesPath)) ?? new List<SearchResult>();
-            }
-            catch { }
-        }
-
-        private void LoadRecentSearches()
-        {
-            try
-            {
-                if (File.Exists(_recentSearchesPath))
-                    _recentSearches = JsonSerializer.Deserialize<List<SearchResult>>(File.ReadAllText(_recentSearchesPath)) ?? new List<SearchResult>();
-            }
-            catch { }
-        }
-
-        public void SaveRecentFiles()
-        {
-            File.WriteAllText(_recentFilesPath, JsonSerializer.Serialize(_recentFiles.Take(MaxRecentFiles).ToList()));
-        }
-
-        public void SaveRecentSearches()
-        {
-            File.WriteAllText(_recentSearchesPath, JsonSerializer.Serialize(_recentSearches.Take(MaxRecentSearches).ToList()));
-        }
-
-        public void SaveIndexingSettings() => File.WriteAllText(_indexingSettingsPath, JsonSerializer.Serialize(_indexingSettings));
-        public void SaveExclusionSettings() => File.WriteAllText(_exclusionSettingsPath, JsonSerializer.Serialize(_exclusionSettings));
-        public void SaveGeneralSettings() => File.WriteAllText(_generalSettingsPath, JsonSerializer.Serialize(_generalSettings));
-
-        #endregion
-
-        #region UI Updates
-
-        public void UpdateDefaultView()
-        {
-            var displayList = new List<SearchResult>();
-
-            if (_recentFiles.Any())
-            {
-                displayList.AddRange(_recentFiles.Select(r => { r.GroupName = "Recently Opened"; return r; }));
-            }
-
-            if (_recentSearches.Any())
-            {
-                displayList.AddRange(_recentSearches.Select(s => { s.GroupName = "Recent Searches"; return s; }));
-            }
-
-            displayList.Add(new SearchResult
-            {
-                Name = "Settings",
-                FullPath = "SETTINGS_COMMAND",
-                Type = ResultType.Application,
-                IsSpecialCommand = true,
-                GroupName = "ClearView Commands"
-            });
-
-            displayList.Add(new SearchResult
-            {
-                Name = "Exit",
-                FullPath = "EXIT_COMMAND",
-                Type = ResultType.Application,
-                IsSpecialCommand = true,
-                GroupName = "ClearView Commands"
-            });
-
-            _groupedResults.Source = displayList;
-            OnPropertyChanged(nameof(GroupedResults));
-        }
-
-        private async Task UpdateDisplayedResults()
-        {
-            string query = SearchText ?? string.Empty;
-            string lowerQuery = query.Trim().ToLowerInvariant();
-
-            if (string.IsNullOrWhiteSpace(lowerQuery))
-            {
-                UpdateDefaultView();
-                return;
-            }
-
-            var candidates = _fileSystemIndex
-                .Where(r => !string.IsNullOrEmpty(r.Name) &&
-                            r.Name.IndexOf(lowerQuery, StringComparison.OrdinalIgnoreCase) >= 0)
-                .ToList();
-
-            // ✅ If no local results → fallback to web search
-            if (!candidates.Any())
-            {
-                var webResult = new SearchResult
-                {
-                    Name = $"Search for \"{query}\" on the Web",
-                    FullPath = $"WEBSEARCH:{query}",
-                    Type = ResultType.WebSearch,   // proper type
-                    IsSpecialCommand = false,      // allow deletion
-                    GroupName = "Recent Searches"
-                };
-
-                _groupedResults.Source = new List<SearchResult> { webResult };
-                OnPropertyChanged(nameof(GroupedResults));
-                return;
-            }
-
-            // Ranking and filtering
-            IEnumerable<SearchResult> rankedResults = candidates
-                .Select(r => new { Result = r, Score = ComputeScore(r, lowerQuery) })
-                .OrderByDescending(x => x.Score)
-                .Select(x => x.Result);
-
-            if (GeneralSettings.CleanMode)
-            {
-                rankedResults = rankedResults
-                    .Where(r => !CleanModeNoisyExtensions.Contains(Path.GetExtension(r.FullPath)))
-                    .Take(10);
-            }
-
-            var grouped = rankedResults.GroupBy(r => r.GroupName ?? "Results").SelectMany(g => g);
-            _groupedResults.Source = grouped.ToList();
-            OnPropertyChanged(nameof(GroupedResults));
-        }
-
-        private int ComputeScore(SearchResult result, string query)
-        {
-            if (result == null || string.IsNullOrEmpty(result.Name)) return 0;
-            int score = 0;
-
-            if (result.Name.Equals(query, StringComparison.OrdinalIgnoreCase)) score += 1000;
-            if (result.Name.StartsWith(query, StringComparison.OrdinalIgnoreCase)) score += 500;
-            if (result.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0) score += 100;
-
-            score += result.LaunchCount * 10;
-            return score;
-        }
-
-        #endregion
-
-        #region Indexing
-
-        public async Task BuildFileSystemIndexAsync(bool forceRebuild)
-        {
-            IsIndexingInProgress = true;
-            IsLoadingFromCache = !forceRebuild;
-
-            try
-            {
-                if (!forceRebuild && File.Exists(_indexFilePath))
-                {
-                    _fileSystemIndex = JsonSerializer.Deserialize<List<SearchResult>>(File.ReadAllText(_indexFilePath)) ?? new List<SearchResult>();
-                    IndexingStatusText = $"{_fileSystemIndex.Count} items loaded from cache";
-                }
-                else
-                {
-                    _fileSystemIndex = await FileIndexer.BuildIndexAsync(SearchScope, ExclusionSettings, progress =>
+                    if (iconStream != null)
                     {
-                        IndexingStatusText = $"{progress} items indexed...";
-                    });
-                    File.WriteAllText(_indexFilePath, JsonSerializer.Serialize(_fileSystemIndex));
-                    IndexingStatusText = $"{_fileSystemIndex.Count} items indexed";
+                        _notifyIcon = new NotifyIcon
+                        {
+                            Icon = new System.Drawing.Icon(iconStream),
+                            Visible = true,
+                            Text = "ClearView"
+                        };
+                        _notifyIcon.Click += (s, args) => ShowLauncher();
+                    }
                 }
             }
             catch (Exception ex)
             {
-                IndexingStatusText = $"Indexing failed: {ex.Message}";
+                System.Windows.MessageBox.Show($"Could not create tray icon: {ex.Message}");
+            }
+        }
+
+        private void SetupHotkey() 
+        {
+            _hotkeyHelper?.Unregister();
+            _hotkeyHelper = new HotkeyHelper(this, _viewModel.GeneralSettings);
+            _hotkeyHelper.Register();
+        }
+
+        public void ShowLauncher()
+        {
+            if (this.IsVisible)
+            {
+                this.Hide();
+            }
+            else
+            {
+                Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.Normal;
+                this.Show();
+                this.Activate();
+                SearchBox.Clear();
+                _viewModel.UpdateDefaultView();
+                FocusSearchBox();
+            }
+        }
+        
+        private async void OpenSettingsWindow()
+        {
+            var settingsWindow = new SettingsWindow(new List<string>(_viewModel.SearchScope), _viewModel.IndexingSettings, _viewModel.ExclusionSettings, _viewModel.GeneralSettings);
+            if (settingsWindow.ShowDialog() == true)
+            {
+                _viewModel.SearchScope = settingsWindow.SelectedDrives;
+                _viewModel.IndexingSettings = settingsWindow.IndexingSettings;
+                _viewModel.ExclusionSettings = settingsWindow.ExclusionSettings;
+                _viewModel.GeneralSettings = settingsWindow.GeneralSettings;
+                
+                string appDataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClearView");
+                File.WriteAllText(Path.Combine(appDataPath, "drives.json"), System.Text.Json.JsonSerializer.Serialize(_viewModel.SearchScope));
+                _viewModel.SaveIndexingSettings();
+                _viewModel.SaveExclusionSettings();
+                _viewModel.SaveGeneralSettings();
+
+                if (settingsWindow.HotkeyChanged)
+                {
+                    SetupHotkey();
+                    var messageWindow = new MessageWindow("Hotkey Changed", "Please restart ClearView for the new hotkey to take effect.") { Owner = this };
+                    messageWindow.ShowDialog();
+                }
+
+                if (settingsWindow.ShouldRebuildIndex)
+                {
+                    await _viewModel.BuildFileSystemIndexAsync(true);
+                }
+            }
+        }
+
+        private void LaunchItem(SearchResult item)
+        {
+            if (item == null) return;
+
+            // ✅ Handle Web Search fallback FIRST
+            if (item.FullPath.StartsWith("WEBSEARCH:", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    string query = item.FullPath.Substring("WEBSEARCH:".Length);
+                    Process.Start(new ProcessStartInfo($"https://www.google.com/search?q={Uri.EscapeDataString(query)}")
+                    {
+                        UseShellExecute = true
+                    });
+                    item.Type = ResultType.RecentWebSearch;
+                    _viewModel.AddToRecentSearches(item);
+                    Hide();
+                }
+                catch (Exception ex) { System.Windows.MessageBox.Show($"Could not open web browser: {ex.Message}"); }
+                return;
+            }
+
+            // Existing calculator logic
+            if (item.Type == ResultType.Calculator)
+            {
+                try
+                {
+                    System.Windows.Clipboard.SetText(item.Name);
+                    Hide();
+                }
+                catch (Exception ex) { System.Windows.MessageBox.Show($"Could not copy to clipboard: {ex.Message}"); }
+                return;
+            }
+
+            // Existing URL logic
+            if (item.Type == ResultType.Url || (item.Type == ResultType.RecentWebSearch && IsLikelyUrl(item.FullPath)))
+            {
+                try
+                {
+                    string url = item.FullPath;
+                    if (!url.StartsWith("http://") && !url.StartsWith("https://")) url = "https://" + url;
+                    Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                    item.Type = ResultType.RecentWebSearch;
+                    item.Name = item.FullPath;
+                    _viewModel.AddToRecentSearches(item);
+                    Hide();
+                }
+                catch (Exception ex) { System.Windows.MessageBox.Show($"Could not open URL: {ex.Message}"); }
+                return;
+            }
+
+            // Existing web search results (not fallback)
+            if (item.Type == ResultType.WebSearch || item.Type == ResultType.RecentWebSearch)
+            {
+                try
+                {
+                Process.Start(new ProcessStartInfo($"https://www.google.com/search?q={Uri.EscapeDataString(item.FullPath)}") { UseShellExecute = true });
+                item.Type = ResultType.RecentWebSearch;
+                _viewModel.AddToRecentSearches(item);
+                Hide();
+                }
+                catch (Exception ex) { System.Windows.MessageBox.Show($"Could not open web browser: {ex.Message}"); }
+                return;
+            }
+
+            // Special commands
+            if (item.FullPath == "EXIT_COMMAND")
+            {
+                System.Windows.Application.Current.Shutdown();
+                return;
+            }
+            if (item.FullPath == "SETTINGS_COMMAND")
+            {
+                OpenSettingsWindow();
+                return;
+            }
+
+            // Normal app/file launch
+            try
+            {
+                Process.Start(new ProcessStartInfo(item.FullPath) { UseShellExecute = true });
+                UsageAnalytics.IncrementLaunchCount(item.FullPath);
+                UsageAnalytics.SaveAnalytics();
+                item.LaunchCount++;
+                _viewModel.AddToRecentFiles(item);
+                Hide();
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show($"Could not open item: {ex.Message}");
             }
             finally
             {
-                IsIndexingInProgress = false;
-                IsLoadingFromCache = false;
+                SearchBox.Clear();
             }
         }
 
-        #endregion
-
-        #region Recents Management
-
-        public void AddToRecentFiles(SearchResult result)
+        private bool IsLikelyUrl(string text)
         {
-            _recentFiles.RemoveAll(r => r.FullPath == result.FullPath);
-            _recentFiles.Insert(0, result);
-            if (_recentFiles.Count > MaxRecentFiles)
-                _recentFiles.RemoveAt(_recentFiles.Count - 1);
-            SaveRecentFiles();
+            if (text.Contains(" ")) return false;
+            return text.Contains(".") && (text.EndsWith(".com") || text.EndsWith(".net") || text.EndsWith(".org") || text.EndsWith(".io") || text.EndsWith(".gov") || text.EndsWith(".edu"));
         }
 
-        public void AddToRecentSearches(SearchResult result)
+        private void RunAsAdmin_Click(object sender, RoutedEventArgs e)
         {
-            _recentSearches.RemoveAll(r => r.FullPath == result.FullPath);
-            _recentSearches.Insert(0, result);
-            if (_recentSearches.Count > MaxRecentSearches)
-                _recentSearches.RemoveAt(_recentSearches.Count - 1);
-            SaveRecentSearches();
+            if ((sender as FrameworkElement)?.DataContext is SearchResult item)
+            {
+                if (item.IsSpecialCommand) return;
+                try
+                {
+                    var proc = new ProcessStartInfo(item.FullPath) { UseShellExecute = true, Verb = "runas" };
+                    Process.Start(proc);
+                    UsageAnalytics.IncrementLaunchCount(item.FullPath);
+                    UsageAnalytics.SaveAnalytics();
+                    item.LaunchCount++;
+                    _viewModel.AddToRecentFiles(item);
+                    Hide();
+                    SearchBox.Clear();
+                }
+                catch (System.ComponentModel.Win32Exception ex) when (ex.Message.Contains("cancelled")) { }
+                catch (Exception ex) { System.Windows.MessageBox.Show($"Could not run as administrator: {ex.Message}"); }
+            }
         }
 
-        #endregion
+        private void OpenFileLocation_Click(object sender, RoutedEventArgs e)
+        {
+             if ((sender as FrameworkElement)?.DataContext is SearchResult item)
+            {
+                if (item.IsSpecialCommand) return;
+                if (File.Exists(item.FullPath) || Directory.Exists(item.FullPath))
+                {
+                    try { Process.Start("explorer.exe", $"/select,\"{item.FullPath}\""); }
+                    catch (Exception ex) { System.Windows.MessageBox.Show($"Could not open file location: {ex.Message}"); }
+                }
+            }
+        }
+
+        private void DeleteRecentItem_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is SearchResult itemToRemove)
+            {
+                if (itemToRemove.IsSpecialCommand) return;
+                if (itemToRemove.GroupName == "Recent Searches")
+                {
+                    _viewModel.RecentSearches.RemoveAll(s => s.FullPath == itemToRemove.FullPath);
+                    _viewModel.SaveRecentSearches();
+                }
+                else
+                {
+                    _viewModel.RecentFiles.RemoveAll(r => r.FullPath == itemToRemove.FullPath);
+                    _viewModel.SaveRecentFiles();
+                }
+                _viewModel.UpdateDefaultView();
+            }
+        }
+        
+        private void ResultsBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (ResultsBox.SelectedItem is SearchResult selectedResult)
+            {
+                LaunchItem(selectedResult);
+            }
+        }
+
+        private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) { if (e.LeftButton == MouseButtonState.Pressed) { WindowAccent.DisableBlur(this); DragMove(); } }
+        private void Window_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) { WindowAccent.EnableBlur(this); this.Background = System.Windows.Media.Brushes.Transparent; }
+        private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e) { _hotkeyHelper?.Unregister(); _notifyIcon?.Dispose(); }
+        private void SetPlaceholder() { _isProgrammaticallyChangingText = true; SearchBox.Text = PlaceholderText; SearchBox.Foreground = System.Windows.Media.Brushes.Gray; _isProgrammaticallyChangingText = false; }
+        private void RemovePlaceholder() { _isProgrammaticallyChangingText = true; if (SearchBox.Text == PlaceholderText) { SearchBox.Text = ""; } SearchBox.Foreground = System.Windows.Media.Brushes.White; _isProgrammaticallyChangingText = false; }
+        private void SearchBox_GotFocus(object sender, RoutedEventArgs e) { if (SearchBox.Text == PlaceholderText) { RemovePlaceholder(); } }
+        private void SearchBox_LostFocus(object sender, RoutedEventArgs e) { if (string.IsNullOrWhiteSpace(SearchBox.Text)) { SetPlaceholder(); } }
+        private void SearchBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter && ResultsBox.SelectedItem is SearchResult selectedResult) { LaunchItem(selectedResult); e.Handled = true; }
+            else if (ResultsBox.Items.Count > 0)
+            {
+                int newIndex = ResultsBox.SelectedIndex;
+                bool keyHandled = false;
+                if (e.Key == Key.Down) { newIndex = (ResultsBox.SelectedIndex + 1) % ResultsBox.Items.Count; keyHandled = true; }
+                else if (e.Key == Key.Up) { newIndex = (ResultsBox.SelectedIndex - 1 + ResultsBox.Items.Count) % ResultsBox.Items.Count; keyHandled = true; }
+                if (keyHandled) { ResultsBox.SelectedIndex = newIndex; ResultsBox.ScrollIntoView(ResultsBox.SelectedItem); e.Handled = true; }
+            }
+        }
+
+        public void FocusSearchBox() { SearchBox.Focus(); }
+        private void Window_Deactivated(object sender, EventArgs e) { if (this.IsVisible) { this.Hide(); Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.BelowNormal; } }
+
+        private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) 
+        {
+            if (_isProgrammaticallyChangingText) return;
+            if (DataContext is LauncherViewModel vm)
+            {
+                vm.SearchText = SearchBox.Text;
+            }
+        }
     }
 }

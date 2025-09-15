@@ -11,9 +11,9 @@ using System;
 using System.Reflection;
 
 [assembly: System.Reflection.AssemblyCompanyAttribute("ClearView")]
-[assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
+[assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+61ea30c103574e15863f3a2316bb9594603f6e4f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+273400fbd22529982f87641df53b08043bd9e5fa")]
 [assembly: System.Reflection.AssemblyProductAttribute("ClearView")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ClearView")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -35,6 +35,7 @@ namespace ClearView.ViewModel
         private IndexingSettings _indexingSettings = new IndexingSettings();
         private ExclusionSettings _exclusionSettings = new ExclusionSettings();
         private GeneralSettings _generalSettings = new GeneralSettings();
+        private readonly Indexer _fileIndexer = new Indexer();
 
         private DispatcherTimer _searchTimer;
 
@@ -118,7 +119,7 @@ namespace ClearView.ViewModel
             {
                 _generalSettings = value ?? new GeneralSettings();
                 OnPropertyChanged();
-                _ = UpdateDisplayedResults();
+                UpdateDisplayedResults();
             }
         }
 
@@ -146,10 +147,10 @@ namespace ClearView.ViewModel
             _groupedResults.GroupDescriptions.Add(new PropertyGroupDescription("GroupName"));
 
             _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
-            _searchTimer.Tick += async (s, e) =>
+            _searchTimer.Tick += (s, e) =>
             {
                 _searchTimer.Stop();
-                await UpdateDisplayedResults();
+                UpdateDisplayedResults();
             };
 
             Initialize();
@@ -290,7 +291,7 @@ namespace ClearView.ViewModel
             OnPropertyChanged(nameof(GroupedResults));
         }
 
-        private async Task UpdateDisplayedResults()
+        private void UpdateDisplayedResults()
         {
             string query = SearchText ?? string.Empty;
             string lowerQuery = query.Trim().ToLowerInvariant();
@@ -306,16 +307,15 @@ namespace ClearView.ViewModel
                             r.Name.IndexOf(lowerQuery, StringComparison.OrdinalIgnoreCase) >= 0)
                 .ToList();
 
-            // ✅ If no local results → fallback to web search
             if (!candidates.Any())
             {
                 var webResult = new SearchResult
                 {
                     Name = $"Search for \"{query}\" on the Web",
                     FullPath = $"WEBSEARCH:{query}",
-                    Type = ResultType.WebSearch,   // proper type
-                    IsSpecialCommand = false,      // allow deletion
-                    GroupName = "Recent Searches"
+                    Type = ResultType.WebSearch,
+                    IsSpecialCommand = false,
+                    GroupName = "Web Search"
                 };
 
                 _groupedResults.Source = new List<SearchResult> { webResult };
@@ -323,21 +323,43 @@ namespace ClearView.ViewModel
                 return;
             }
 
-            // Ranking and filtering
             IEnumerable<SearchResult> rankedResults = candidates
                 .Select(r => new { Result = r, Score = ComputeScore(r, lowerQuery) })
-                .OrderByDescending(x => x.Score)
+                // CHANGED: Sort by type first to ensure Applications are always at the top, then sort by score.
+                .OrderByDescending(x => x.Result.Type == ResultType.Application)
+                .ThenByDescending(x => x.Score)
                 .Select(x => x.Result);
 
-            if (GeneralSettings.CleanMode)
+            if (GeneralSettings.SearchMode == SearchMode.Clean)
             {
+                // CHANGED: Modified filter to always include Applications, preventing them from being hidden in Clean mode.
                 rankedResults = rankedResults
-                    .Where(r => !CleanModeNoisyExtensions.Contains(Path.GetExtension(r.FullPath)))
+                    .Where(r => r.Type == ResultType.Application || !CleanModeNoisyExtensions.Contains(Path.GetExtension(r.FullPath)))
                     .Take(10);
             }
 
-            var grouped = rankedResults.GroupBy(r => r.GroupName ?? "Results").SelectMany(g => g);
-            _groupedResults.Source = grouped.ToList();
+            var finalResults = rankedResults.ToList();
+            
+            finalResults.ForEach(r =>
+            {
+                switch (r.Type)
+                {
+                    case ResultType.Application:
+                        r.GroupName = "Applications";
+                        break;
+                    case ResultType.Folder:
+                        r.GroupName = "Folders";
+                        break;
+                    case ResultType.File:
+                        r.GroupName = "Files";
+                        break;
+                    default:
+                        r.GroupName = "Results";
+                        break;
+                }
+            });
+
+            _groupedResults.Source = finalResults;
             OnPropertyChanged(nameof(GroupedResults));
         }
 
@@ -345,6 +367,13 @@ namespace ClearView.ViewModel
         {
             if (result == null || string.IsNullOrEmpty(result.Name)) return 0;
             int score = 0;
+            string nameWithoutExtension = Path.GetFileNameWithoutExtension(result.Name);
+
+            // CHANGED: Added a large score bonus for queries that exactly match the filename without its extension.
+            if (nameWithoutExtension.Equals(query, StringComparison.OrdinalIgnoreCase))
+            {
+                score += 2000;
+            }
 
             if (result.Name.Equals(query, StringComparison.OrdinalIgnoreCase)) score += 1000;
             if (result.Name.StartsWith(query, StringComparison.OrdinalIgnoreCase)) score += 500;
@@ -367,16 +396,18 @@ namespace ClearView.ViewModel
             {
                 if (!forceRebuild && File.Exists(_indexFilePath))
                 {
-                    _fileSystemIndex = JsonSerializer.Deserialize<List<SearchResult>>(File.ReadAllText(_indexFilePath)) ?? new List<SearchResult>();
+                    var json = await File.ReadAllTextAsync(_indexFilePath);
+                    _fileSystemIndex = JsonSerializer.Deserialize<List<SearchResult>>(json) ?? new List<SearchResult>();
                     IndexingStatusText = $"{_fileSystemIndex.Count} items loaded from cache";
                 }
                 else
                 {
-                    _fileSystemIndex = await FileIndexer.BuildIndexAsync(SearchScope, ExclusionSettings, progress =>
+                    var progressReporter = new Progress<long>(progress =>
                     {
                         IndexingStatusText = $"{progress} items indexed...";
                     });
-                    File.WriteAllText(_indexFilePath, JsonSerializer.Serialize(_fileSystemIndex));
+                    _fileSystemIndex = await _fileIndexer.BuildIndexAsync(SearchScope, ExclusionSettings, GeneralSettings.SearchMode, progressReporter);
+                    await File.WriteAllTextAsync(_indexFilePath, JsonSerializer.Serialize(_fileSystemIndex));
                     IndexingStatusText = $"{_fileSystemIndex.Count} items indexed";
                 }
             }
