@@ -1,3 +1,4 @@
+// FILE: ViewModel/LauncherViewModel.cs
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -7,7 +8,6 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Data;
 using System.Windows.Threading;
-using System.Windows;
 using ClearView.Data;
 using ClearView.Logic;
 using ClearView.Utils;
@@ -36,7 +36,6 @@ namespace ClearView.ViewModel
         private ExclusionSettings _exclusionSettings = new ExclusionSettings();
         private GeneralSettings _generalSettings = new GeneralSettings();
 
-        private bool _isIndexing = false;
         private DispatcherTimer _searchTimer;
 
         private bool _isIndexingInProgress;
@@ -94,13 +93,42 @@ namespace ClearView.ViewModel
         private CollectionViewSource _groupedResults = new CollectionViewSource();
         public ICollectionView GroupedResults => _groupedResults.View;
 
-        public List<string> SearchScope { get => _searchScope; set => _searchScope = value; }
-        public IndexingSettings IndexingSettings { get => _indexingSettings; set => _indexingSettings = value; }
-        public ExclusionSettings ExclusionSettings { get => _exclusionSettings; set => _exclusionSettings = value; }
-        public GeneralSettings GeneralSettings { get => _generalSettings; set => _generalSettings = value; }
+        public List<string> SearchScope
+        {
+            get => _searchScope;
+            set { _searchScope = value ?? new List<string>(); OnPropertyChanged(nameof(SearchScope)); }
+        }
+
+        public IndexingSettings IndexingSettings
+        {
+            get => _indexingSettings;
+            set { _indexingSettings = value; OnPropertyChanged(); }
+        }
+
+        public ExclusionSettings ExclusionSettings
+        {
+            get => _exclusionSettings;
+            set { _exclusionSettings = value; OnPropertyChanged(); }
+        }
+
+        public GeneralSettings GeneralSettings
+        {
+            get => _generalSettings;
+            set
+            {
+                _generalSettings = value ?? new GeneralSettings();
+                OnPropertyChanged();
+                _ = UpdateDisplayedResults();
+            }
+        }
 
         public List<SearchResult> RecentFiles => _recentFiles;
         public List<SearchResult> RecentSearches => _recentSearches;
+
+        private static readonly HashSet<string> CleanModeNoisyExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".log", ".tmp", ".bak", ".cache", ".pkg", ".js"
+        };
 
         public LauncherViewModel()
         {
@@ -140,6 +168,8 @@ namespace ClearView.ViewModel
             UpdateDefaultView();
         }
 
+        #region Load/Save Methods
+
         private void LoadDriveSettings()
         {
             try
@@ -148,15 +178,10 @@ namespace ClearView.ViewModel
                 {
                     var savedDrives = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(_settingsPath));
                     if (savedDrives != null && savedDrives.Any())
-                    {
                         _searchScope = savedDrives;
-                    }
                 }
-
                 if (!_searchScope.Any())
-                {
                     _searchScope.Add(DriveInfo.GetDrives().First(d => d.IsReady).Name);
-                }
             }
             catch { }
         }
@@ -166,14 +191,9 @@ namespace ClearView.ViewModel
             try
             {
                 if (File.Exists(_indexingSettingsPath))
-                {
                     _indexingSettings = JsonSerializer.Deserialize<IndexingSettings>(File.ReadAllText(_indexingSettingsPath)) ?? new IndexingSettings();
-                }
             }
-            catch
-            {
-                _indexingSettings = new IndexingSettings();
-            }
+            catch { _indexingSettings = new IndexingSettings(); }
         }
 
         private void LoadExclusionSettings()
@@ -181,14 +201,9 @@ namespace ClearView.ViewModel
             try
             {
                 if (File.Exists(_exclusionSettingsPath))
-                {
                     _exclusionSettings = JsonSerializer.Deserialize<ExclusionSettings>(File.ReadAllText(_exclusionSettingsPath)) ?? new ExclusionSettings();
-                }
             }
-            catch
-            {
-                _exclusionSettings = new ExclusionSettings();
-            }
+            catch { _exclusionSettings = new ExclusionSettings(); }
         }
 
         private void LoadGeneralSettings()
@@ -196,14 +211,9 @@ namespace ClearView.ViewModel
             try
             {
                 if (File.Exists(_generalSettingsPath))
-                {
                     _generalSettings = JsonSerializer.Deserialize<GeneralSettings>(File.ReadAllText(_generalSettingsPath)) ?? new GeneralSettings();
-                }
             }
-            catch
-            {
-                _generalSettings = new GeneralSettings();
-            }
+            catch { _generalSettings = new GeneralSettings(); }
         }
 
         private void LoadRecentFiles()
@@ -211,9 +221,7 @@ namespace ClearView.ViewModel
             try
             {
                 if (File.Exists(_recentFilesPath))
-                {
                     _recentFiles = JsonSerializer.Deserialize<List<SearchResult>>(File.ReadAllText(_recentFilesPath)) ?? new List<SearchResult>();
-                }
             }
             catch { }
         }
@@ -223,12 +231,28 @@ namespace ClearView.ViewModel
             try
             {
                 if (File.Exists(_recentSearchesPath))
-                {
                     _recentSearches = JsonSerializer.Deserialize<List<SearchResult>>(File.ReadAllText(_recentSearchesPath)) ?? new List<SearchResult>();
-                }
             }
             catch { }
         }
+
+        public void SaveRecentFiles()
+        {
+            File.WriteAllText(_recentFilesPath, JsonSerializer.Serialize(_recentFiles.Take(MaxRecentFiles).ToList()));
+        }
+
+        public void SaveRecentSearches()
+        {
+            File.WriteAllText(_recentSearchesPath, JsonSerializer.Serialize(_recentSearches.Take(MaxRecentSearches).ToList()));
+        }
+
+        public void SaveIndexingSettings() => File.WriteAllText(_indexingSettingsPath, JsonSerializer.Serialize(_indexingSettings));
+        public void SaveExclusionSettings() => File.WriteAllText(_exclusionSettingsPath, JsonSerializer.Serialize(_exclusionSettings));
+        public void SaveGeneralSettings() => File.WriteAllText(_generalSettingsPath, JsonSerializer.Serialize(_generalSettings));
+
+        #endregion
+
+        #region UI Updates
 
         public void UpdateDefaultView()
         {
@@ -236,20 +260,12 @@ namespace ClearView.ViewModel
 
             if (_recentFiles.Any())
             {
-                displayList.AddRange(_recentFiles.Select(r =>
-                {
-                    r.GroupName = "Recently Opened";
-                    return r;
-                }));
+                displayList.AddRange(_recentFiles.Select(r => { r.GroupName = "Recently Opened"; return r; }));
             }
 
             if (_recentSearches.Any())
             {
-                displayList.AddRange(_recentSearches.Select(s =>
-                {
-                    s.GroupName = "Recent Searches";
-                    return s;
-                }));
+                displayList.AddRange(_recentSearches.Select(s => { s.GroupName = "Recent Searches"; return s; }));
             }
 
             displayList.Add(new SearchResult
@@ -276,8 +292,8 @@ namespace ClearView.ViewModel
 
         private async Task UpdateDisplayedResults()
         {
-            string query = SearchText;
-            string lowerQuery = query.ToLower();
+            string query = SearchText ?? string.Empty;
+            string lowerQuery = query.Trim().ToLowerInvariant();
 
             if (string.IsNullOrWhiteSpace(lowerQuery))
             {
@@ -285,135 +301,118 @@ namespace ClearView.ViewModel
                 return;
             }
 
-            var results = _fileSystemIndex
-                .Where(r => r.Name != null && r.Name.ToLower().Contains(lowerQuery))
-                .Select(r =>
-                {
-                    r.GroupName = r.Type == ResultType.Folder ? "Folders" :
-                                  r.Type == ResultType.Application ? "Applications" : "Files";
-                    return r;
-                })
+            var candidates = _fileSystemIndex
+                .Where(r => !string.IsNullOrEmpty(r.Name) &&
+                            r.Name.IndexOf(lowerQuery, StringComparison.OrdinalIgnoreCase) >= 0)
                 .ToList();
 
-            _groupedResults.Source = results;
+            // ✅ If no local results → fallback to web search
+            if (!candidates.Any())
+            {
+                var webResult = new SearchResult
+                {
+                    Name = $"Search for \"{query}\" on the Web",
+                    FullPath = $"WEBSEARCH:{query}",
+                    Type = ResultType.WebSearch,   // proper type
+                    IsSpecialCommand = false,      // allow deletion
+                    GroupName = "Recent Searches"
+                };
+
+                _groupedResults.Source = new List<SearchResult> { webResult };
+                OnPropertyChanged(nameof(GroupedResults));
+                return;
+            }
+
+            // Ranking and filtering
+            IEnumerable<SearchResult> rankedResults = candidates
+                .Select(r => new { Result = r, Score = ComputeScore(r, lowerQuery) })
+                .OrderByDescending(x => x.Score)
+                .Select(x => x.Result);
+
+            if (GeneralSettings.CleanMode)
+            {
+                rankedResults = rankedResults
+                    .Where(r => !CleanModeNoisyExtensions.Contains(Path.GetExtension(r.FullPath)))
+                    .Take(10);
+            }
+
+            var grouped = rankedResults.GroupBy(r => r.GroupName ?? "Results").SelectMany(g => g);
+            _groupedResults.Source = grouped.ToList();
             OnPropertyChanged(nameof(GroupedResults));
         }
 
-        public void SaveIndexingSettings()
+        private int ComputeScore(SearchResult result, string query)
         {
-            try { File.WriteAllText(_indexingSettingsPath, JsonSerializer.Serialize(_indexingSettings)); }
-            catch { }
+            if (result == null || string.IsNullOrEmpty(result.Name)) return 0;
+            int score = 0;
+
+            if (result.Name.Equals(query, StringComparison.OrdinalIgnoreCase)) score += 1000;
+            if (result.Name.StartsWith(query, StringComparison.OrdinalIgnoreCase)) score += 500;
+            if (result.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0) score += 100;
+
+            score += result.LaunchCount * 10;
+            return score;
         }
 
-        public void SaveExclusionSettings()
-        {
-            try { File.WriteAllText(_exclusionSettingsPath, JsonSerializer.Serialize(_exclusionSettings)); }
-            catch { }
-        }
+        #endregion
 
-        public void SaveGeneralSettings()
-        {
-            try { File.WriteAllText(_generalSettingsPath, JsonSerializer.Serialize(_generalSettings)); }
-            catch { }
-        }
+        #region Indexing
 
         public async Task BuildFileSystemIndexAsync(bool forceRebuild)
         {
-            if (_isIndexing) return;
-            _isIndexing = true;
             IsIndexingInProgress = true;
+            IsLoadingFromCache = !forceRebuild;
 
             try
             {
-                if (forceRebuild || !File.Exists(_indexFilePath))
+                if (!forceRebuild && File.Exists(_indexFilePath))
                 {
-                    IsLoadingFromCache = false;
-                    IndexingStatusText = "0 items indexed";
-
-                    var progress = new Progress<long>(c =>
-                    {
-                        IndexingStatusText = $"{c:N0} items indexed";
-                    });
-
-                    _fileSystemIndex = new List<SearchResult>();
-                    _groupedResults.Source = null;
-                    GC.Collect();
-
-                    using (var indexer = new Indexer())
-                    {
-                        _fileSystemIndex = await indexer.BuildIndexAsync(_searchScope, _exclusionSettings, _generalSettings.SearchMode, progress);
-                    }
-
-                    _indexingSettings.LastIndexedUtc = DateTime.UtcNow;
-                    SaveIndexingSettings();
+                    _fileSystemIndex = JsonSerializer.Deserialize<List<SearchResult>>(File.ReadAllText(_indexFilePath)) ?? new List<SearchResult>();
+                    IndexingStatusText = $"{_fileSystemIndex.Count} items loaded from cache";
                 }
                 else
                 {
-                    IsLoadingFromCache = true;
-                    using (var indexer = new Indexer())
+                    _fileSystemIndex = await FileIndexer.BuildIndexAsync(SearchScope, ExclusionSettings, progress =>
                     {
-                        _fileSystemIndex = await indexer.LoadIndexFromCacheAsync();
-                    }
+                        IndexingStatusText = $"{progress} items indexed...";
+                    });
+                    File.WriteAllText(_indexFilePath, JsonSerializer.Serialize(_fileSystemIndex));
+                    IndexingStatusText = $"{_fileSystemIndex.Count} items indexed";
                 }
-
-                if (_fileSystemIndex != null)
-                {
-                    foreach (var item in _fileSystemIndex)
-                    {
-                        item.LaunchCount = UsageAnalytics.GetLaunchCount(item.FullPath);
-                    }
-                }
+            }
+            catch (Exception ex)
+            {
+                IndexingStatusText = $"Indexing failed: {ex.Message}";
             }
             finally
             {
-                _isIndexing = false;
                 IsIndexingInProgress = false;
-                UpdateDefaultView();
+                IsLoadingFromCache = false;
             }
         }
 
-        // -------------------------------
-        // Recent searches and files (fixed signatures)
-        // -------------------------------
+        #endregion
 
-        public void AddToRecentSearches(SearchResult search)
+        #region Recents Management
+
+        public void AddToRecentFiles(SearchResult result)
         {
-            if (search == null || string.IsNullOrWhiteSpace(search.Name)) return;
-
-            search.GroupName = "Recent Searches";
-
-            _recentSearches.RemoveAll(r => r.FullPath == search.FullPath);
-            _recentSearches.Insert(0, search);
-            if (_recentSearches.Count > MaxRecentSearches)
-                _recentSearches.RemoveAt(_recentSearches.Count - 1);
-
-            SaveRecentSearches();
-        }
-
-        public void SaveRecentSearches()
-        {
-            try { File.WriteAllText(_recentSearchesPath, JsonSerializer.Serialize(_recentSearches)); }
-            catch { }
-        }
-
-        public void AddToRecentFiles(SearchResult file)
-        {
-            if (file == null || string.IsNullOrWhiteSpace(file.FullPath)) return;
-
-            file.GroupName = "Recently Opened";
-
-            _recentFiles.RemoveAll(r => r.FullPath == file.FullPath);
-            _recentFiles.Insert(0, file);
+            _recentFiles.RemoveAll(r => r.FullPath == result.FullPath);
+            _recentFiles.Insert(0, result);
             if (_recentFiles.Count > MaxRecentFiles)
                 _recentFiles.RemoveAt(_recentFiles.Count - 1);
-
             SaveRecentFiles();
         }
 
-        public void SaveRecentFiles()
+        public void AddToRecentSearches(SearchResult result)
         {
-            try { File.WriteAllText(_recentFilesPath, JsonSerializer.Serialize(_recentFiles)); }
-            catch { }
+            _recentSearches.RemoveAll(r => r.FullPath == result.FullPath);
+            _recentSearches.Insert(0, result);
+            if (_recentSearches.Count > MaxRecentSearches)
+                _recentSearches.RemoveAt(_recentSearches.Count - 1);
+            SaveRecentSearches();
         }
+
+        #endregion
     }
 }
