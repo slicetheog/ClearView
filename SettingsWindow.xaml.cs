@@ -39,6 +39,16 @@ namespace ClearView.UI
         {
             RunOnStartupCheckBox.IsChecked = GeneralSettings.RunOnStartup;
             UpdateHotkeyText();
+
+            // Initialize the Mode radio buttons (default Clean if missing)
+            if (GeneralSettings.SearchMode == SearchMode.PowerHungry)
+            {
+                ModePowerRadio.IsChecked = true;
+            }
+            else
+            {
+                ModeCleanRadio.IsChecked = true;
+            }
         }
 
         private void LoadDrives()
@@ -131,6 +141,16 @@ namespace ClearView.UI
                 .ToList();
 
             GeneralSettings.RunOnStartup = RunOnStartupCheckBox.IsChecked ?? false;
+
+            // Persist the Mode selection (new)
+            if (ModePowerRadio.IsChecked == true)
+            {
+                GeneralSettings.SearchMode = SearchMode.PowerHungry;
+            }
+            else
+            {
+                GeneralSettings.SearchMode = SearchMode.Clean;
+            }
             
             DialogResult = true;
         }

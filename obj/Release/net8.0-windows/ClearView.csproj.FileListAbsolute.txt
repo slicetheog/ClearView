@@ -1,3 +1,8 @@
+C:\Users\Alex\Desktop\ClearView\bin\Release\net8.0-windows\ClearView.exe
+C:\Users\Alex\Desktop\ClearView\bin\Release\net8.0-windows\ClearView.deps.json
+C:\Users\Alex\Desktop\ClearView\bin\Release\net8.0-windows\ClearView.runtimeconfig.json
+C:\Users\Alex\Desktop\ClearView\bin\Release\net8.0-windows\ClearView.dll
+C:\Users\Alex\Desktop\ClearView\bin\Release\net8.0-windows\ClearView.pdb
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\SettingsWindow.baml
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\Styles.baml
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\UI\MessageWindow.baml
@@ -8,11 +13,6 @@ C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\App.g.cs
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\GeneratedInternalTypeHelper.g.cs
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\ClearView_MarkupCompile.cache
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\ClearView_MarkupCompile.lref
-C:\Users\Alex\Desktop\ClearView\bin\Release\net8.0-windows\ClearView.exe
-C:\Users\Alex\Desktop\ClearView\bin\Release\net8.0-windows\ClearView.deps.json
-C:\Users\Alex\Desktop\ClearView\bin\Release\net8.0-windows\ClearView.runtimeconfig.json
-C:\Users\Alex\Desktop\ClearView\bin\Release\net8.0-windows\ClearView.dll
-C:\Users\Alex\Desktop\ClearView\bin\Release\net8.0-windows\ClearView.pdb
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\App.baml
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\UI\LauncherWindow.baml
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\ClearView.g.resources
@@ -20,6 +20,7 @@ C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\ClearView.GeneratedMS
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\ClearView.AssemblyInfoInputs.cache
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\ClearView.AssemblyInfo.cs
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\ClearView.csproj.CoreCompileInputs.cache
+C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\ClearView.sourcelink.json
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\ClearView.dll
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\refint\ClearView.dll
 C:\Users\Alex\Desktop\ClearView\obj\Release\net8.0-windows\ClearView.pdb

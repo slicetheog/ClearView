@@ -20,6 +20,16 @@
                     <TextBlock Text="General" Style="{StaticResource HeaderStyle}"/>
                     <CheckBox x:Name="RunOnStartupCheckBox" Content="Run on Windows startup" Foreground="White" Margin="0,5,0,0"/>
 
+                    <!-- NEW: Mode row (single row insertion). Keep styling/layout consistent with surrounding controls. -->
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Mode" Foreground="White" VerticalAlignment="Center" Width="90"/>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <RadioButton x:Name="ModeCleanRadio" Content="Clean" GroupName="ModeGroup" Foreground="White" Margin="0,0,12,0"/>
+                            <RadioButton x:Name="ModePowerRadio" Content="Power Hungry" GroupName="ModeGroup" Foreground="White"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <!-- END NEW -->
+
                     <TextBlock Text="Hotkey" Style="{StaticResource HeaderStyle}" Margin="0,15,0,0"/>
                     <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
                         <TextBox x:Name="HotkeyTextBox" IsReadOnly="True" Width="200" Text="Ctrl + Space"/>
